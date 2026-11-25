@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f4f6">
+    <meta name="description" content="Houd je schoolcijfers en gemiddelden eenvoudig bij.">
+    <title>Mijn cijfers</title>
+    <link rel="stylesheet" href="./style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div id="syncIndicator" class="sync-indicator" role="status" hidden>
+      <span class="sync-spinner" aria-hidden="true"></span>
+      <span class="sync-label">Gegevens synchroniseren…</span>
+    </div>
+
+    <div id="loginModal" class="login-Modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle" aria-hidden="true" hidden>
+      <section class="login-Modal-content">
+        <header class="login-Modal-header">
+          <p class="app-label">Mijn cijfers</p>
+          <h2 id="loginTitle">Log in op je account</h2>
+          <p>Log in met een gebruikersnaam en wachtwoord om je cijfers te synchroniseren.</p>
+        </header>
+        <p class="auth-feedback" data-auth-status role="status">Bezig met controleren van je account…</p>
+        <form id="authForm" class="auth-form">
+          <div class="form-group">
+            <label for="authUsernameInput">Gebruikersnaam</label>
+            <input id="authUsernameInput" name="username" type="text" autocomplete="username" minlength="3" maxlength="20" pattern="[A-Za-z0-9_-]{3,20}" aria-describedby="usernameHelp" required>
+            <p id="usernameHelp" class="settings-example">3–20 tekens: letters, cijfers, _ of -. Niet hoofdlettergevoelig.</p>
+          </div>
+          <div class="form-group">
+            <label for="authPasswordInput">Wachtwoord</label>
+            <input id="authPasswordInput" name="password" type="password" autocomplete="current-password" minlength="6" required>
+          </div>
+          <div class="auth-actions">
+            <button id="loginButton" type="submit">Inloggen</button>
+            <button id="registerButton" class="secondary-action-button" type="button">Account maken</button>
+          </div>
+        </form>
+        <p id="authFeedback" class="auth-feedback" role="status" aria-live="polite" hidden></p>
+      </section>
+    </div>
+
+    <main class="app" aria-hidden="true" hidden>
+      <div class="calculator-card">
+        <header class="app-header">
+          <div class="title-group">
+            <p id="activeSchoolYearLabel" class="app-label">Schooljaar laden…</p>
+            <h1>Mijn cijfers</h1>
+            <p class="app-subtitle">Houd je cijfers bij en zie meteen waar je staat.</p>
+            <p id="activeSchoolLevelLabel" class="school-level-label">Niveau niet ingesteld</p>
+          </div>
+          <div class="header-tools">
+            <div id="schoolYearSwitcher" class="school-year-switcher">
+              <span class="school-year-switcher-label">Bekijk schooljaar</span>
+              <button id="schoolYearToggle" class="school-year-toggle" type="button" aria-expanded="false" aria-controls="schoolYearOptions">
+                <span id="selectedSchoolYearLabel"></span>
+                <span class="school-year-chevron" aria-hidden="true"></span>
+              </button>
+              <div id="schoolYearOptions" class="school-year-options" role="listbox" aria-label="Schooljaren" hidden></div>
+            </div>
+            <div class="auth-card">
+              <div class="auth-header">
+                <div>
+                  <h2 id="signedInTitle">Account</h2>
+                  <p data-auth-status>Je cijfers zijn gesynchroniseerd met je account.</p>
+                </div>
+                <button id="logoutButton" class="secondary-action-button" type="button" hidden>Uitloggen</button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <nav class="tab-bar" role="tablist" aria-label="Hoofdnavigatie">
+          <button id="tab-overview" class="tab-button is-active" type="button" role="tab" data-tab-target="panel-overview" aria-controls="panel-overview" aria-selected="true"><span>Overzicht</span></button>
+          <button id="tab-subjects" class="tab-button" type="button" role="tab" data-tab-target="panel-subjects" aria-controls="panel-subjects" aria-selected="false" tabindex="-1"><span>Vakken</span></button>
+          <button id="tab-add" class="tab-button" type="button" role="tab" data-tab-target="panel-add" aria-controls="panel-add" aria-selected="false" tabindex="-1"><span>Toevoegen</span></button>
+          <button id="tab-goal" class="tab-button" type="button" role="tab" data-tab-target="panel-goal" aria-controls="panel-goal" aria-selected="false" tabindex="-1"><span>Doel</span></button>
+          <button id="tab-settings" class="tab-button" type="button" role="tab" data-tab-target="panel-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1"><span>Instellingen</span></button>
+        </nav>
+
+        <div class="tab-panels">
+          <section id="panel-overview" class="tab-panel is-active" aria-labelledby="tab-overview">
+            <section class="summary-section" aria-labelledby="summaryTitle">
+              <div class="section-heading">
+                <div>
+                  <h2 id="summaryTitle">Jouw overzicht</h2>
+                  <p class="section-intro">Een snel overzicht van al je cijfers.</p>
+                </div>
+                <div class="section-actions">
+                  <button id="generateReportButton" class="secondary-action-button" type="button">Maak rapport</button>
+                  <button id="clearGradesButton" type="button">Wis alle cijfers</button>
+                </div>
+              </div>
+              <div class="summary-grid">
+                <article class="summary-item">
+                  <p class="summary-label">Vakken</p>
+                  <p id="subjectCount" class="summary-value">0</p>
+                </article>
+                <article class="summary-item">
+                  <p class="summary-label">Cijfers</p>
+                  <p id="gradeCount" class="summary-value">0</p>
+                </article>
+                <article class="summary-item">
+                  <p class="summary-label">Gewogen gemiddelde</p>
+                  <p id="gradeAverage" class="summary-value">0,0</p>
+                </article>
+              </div>
+              <p class="section-intro">Totaal van de gewogen cijfers: <strong id="gradeTotal">0,0</strong></p>
+            </section>
+
+            <section class="chart-section" aria-labelledby="chartTitle">
+              <h2 id="chartTitle">Gemiddelde per vak</h2>
+              <div class="chart-card">
+                <div class="chart-wrapper">
+                  <canvas id="subjectChart" aria-label="Grafiek met gemiddelden per vak" role="img" hidden></canvas>
+                  <div id="chartEmptyState" class="chart-empty-state">
+                    <div class="empty-state-content">
+                      <h3>Nog geen grafiek</h3>
+                      <p>Voeg vakken en cijfers toe om je gemiddelden te zien.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="subjects-section" aria-labelledby="subjectAveragesTitle">
+              <h2 id="subjectAveragesTitle">Gemiddelden per vak</h2>
+              <p class="section-intro">De gemiddelden van de vakken in dit schooljaar.</p>
+              <div id="subjectAveragesList" class="subject-averages-list"></div>
+            </section>
+          </section>
+
+          <section id="panel-subjects" class="tab-panel" aria-labelledby="tab-subjects" hidden>
+            <section class="subjects-section" aria-labelledby="subjectsTitle">
+              <h2 id="subjectsTitle">Vakken en cijfers</h2>
+              <p class="section-intro">Bekijk, beheer en verwijder hier je cijfers per vak.</p>
+              <div id="subjectsList" class="subject-list"></div>
+            </section>
+          </section>
+
+          <section id="panel-add" class="tab-panel" aria-labelledby="tab-add" hidden>
+            <section class="input-section" aria-labelledby="addTitle">
+              <h2 id="addTitle">Cijfer toevoegen</h2>
+              <p class="section-intro">Vul je cijfer in. Je kunt ook een weging en omschrijving toevoegen.</p>
+              <form id="gradeForm">
+                <div class="form-group">
+                  <label for="subjectInput">Vak</label>
+                  <input id="subjectInput" name="subject" type="text" list="subjectSuggestions" autocomplete="off" placeholder="Bijvoorbeeld: Wiskunde" required>
+                  <datalist id="subjectSuggestions"></datalist>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="gradeInput">Cijfer (1–10)</label>
+                    <input id="gradeInput" name="grade" type="text" inputmode="decimal" placeholder="Bijvoorbeeld: 7,5" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="gradeWeightInput">Weging</label>
+                    <input id="gradeWeightInput" name="weight" type="number" min="1" step="1" value="1" required>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="gradeNoteInput">Omschrijving <span>(optioneel)</span></label>
+                  <input id="gradeNoteInput" name="note" type="text" maxlength="120" placeholder="Bijvoorbeeld: Hoofdstuk 3">
+                </div>
+                <button id="addGradeButton" type="submit">Cijfer opslaan</button>
+              </form>
+            </section>
+            <section class="input-section" aria-labelledby="existingSubjectsTitle">
+              <h2 id="existingSubjectsTitle">Bestaande vakken</h2>
+              <p class="section-intro">Kies een vak om het snel in te vullen.</p>
+              <div id="subjectChips" class="subject-chip-list"></div>
+            </section>
+          </section>
+
+          <section id="panel-goal" class="tab-panel" aria-labelledby="tab-goal" hidden>
+            <section class="goal-section" aria-labelledby="goalTitle">
+              <h2 id="goalTitle">Bereken je benodigde cijfer</h2>
+              <p class="section-intro">Ontdek welk cijfer je nodig hebt voor je gewenste gemiddelde.</p>
+              <form id="goalForm">
+                <div class="form-group">
+                  <label for="goalSubjectSelect">Vak</label>
+                  <select id="goalSubjectSelect" name="subject">
+                    <option value="">Kies een vak</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="desiredAverageInput">Gewenst gemiddelde</label>
+                    <input id="desiredAverageInput" name="desiredAverage" type="text" inputmode="decimal" placeholder="Bijvoorbeeld: 7,0" required>
+                  </div>
+                  <div class="form-group">
+                    <label for="goalWeightInput">Weging volgend cijfer</label>
+                    <input id="goalWeightInput" name="weight" type="number" min="1" step="1" value="1" required>
+                  </div>
+                </div>
+                <button id="calculateGoalButton" type="submit">Bereken benodigd cijfer</button>
+              </form>
+            </section>
+            <section class="goal-result-section" aria-labelledby="goalResultTitle">
+              <h2 id="goalResultTitle">Resultaat</h2>
+              <div id="goalResultCard" class="goal-result-card empty-state-card" aria-live="polite">
+                <div class="empty-state-content">
+                  <h3>Nog geen berekening</h3>
+                  <p>Kies een vak en doelgemiddelde om je benodigde cijfer te zien.</p>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section id="panel-settings" class="tab-panel" aria-labelledby="tab-settings" hidden>
+            <section class="settings-section" aria-labelledby="settingsTitle">
+              <h2 id="settingsTitle">Instellingen</h2>
+              <section class="settings-card school-year-settings" aria-labelledby="schoolYearSettingsTitle">
+                <div class="settings-card-header">
+                  <h3 id="schoolYearSettingsTitle">Schooljaar toevoegen</h3>
+                  <p>Bewaar cijfers per schooljaar en niveau. Wissel daarna via de keuzelijst bovenaan.</p>
+                </div>
+                <form id="schoolYearForm">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="newSchoolYearInput">Schooljaar</label>
+                      <input id="newSchoolYearInput" name="schoolYear" type="text" inputmode="numeric" placeholder="2025-2026" pattern="[0-9]{4}-[0-9]{4}" required>
+                    </div>
+                    <div class="form-group">
+                      <label for="newSchoolLevelInput">Niveau en leerjaar</label>
+                      <input id="newSchoolLevelInput" name="level" type="text" maxlength="60" placeholder="Bijv. havo 4" required>
+                    </div>
+                  </div>
+                  <button id="addSchoolYearButton" type="submit">Schooljaar toevoegen</button>
+                  <p id="schoolYearFeedback" class="settings-example" role="status" aria-live="polite"></p>
+                </form>
+              </section>
+              <form id="settingsForm">
+                <section class="settings-card">
+                  <div class="settings-card-header">
+                    <h3>Weergave</h3>
+                    <p>Kies hoe de app eruitziet.</p>
+                  </div>
+                  <span id="theme-label">Thema</span>
+                  <div id="themeSlider" class="theme-slider" role="radiogroup" aria-labelledby="theme-label">
+                    <span class="slider-knob" aria-hidden="true"></span>
+                    <button class="theme-option" type="button" role="radio" data-value="light" aria-checked="false">Licht</button>
+                    <button class="theme-option" type="button" role="radio" data-value="auto" aria-checked="true">Auto</button>
+                    <button class="theme-option" type="button" role="radio" data-value="dark" aria-checked="false">Donker</button>
+                  </div>
+                </section>
+                <section class="settings-card">
+                  <div class="settings-card-header">
+                    <h3>Cijfers</h3>
+                    <p>Pas de afronding en voldoendegrens aan.</p>
+                  </div>
+                  <div class="form-group">
+                    <label for="decimalSelect">Aantal decimalen</label>
+                    <select id="decimalSelect" name="decimals">
+                      <option value="1">1 decimaal</option>
+                      <option value="2">2 decimalen</option>
+                    </select>
+                    <p id="decimalExample" class="settings-example"></p>
+                  </div>
+                  <div class="form-group">
+                    <label for="passingGradeInput">Voldoende vanaf</label>
+                    <input id="passingGradeInput" name="passingGrade" type="text" inputmode="decimal" required>
+                    <p id="passingGradeExample" class="settings-example"></p>
+                  </div>
+                </section>
+              </form>
+            </section>
+          </section>
+        </div>
+
+      </div>
+    </main>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+    <dialog id="reportDialog" class="report-dialog" aria-labelledby="reportTitle">
+      <article class="report-sheet">
+        <header class="report-header">
+          <div class="report-brand">
+            <span class="report-brand-mark" aria-hidden="true">M</span>
+            <span>MIJN CIJFERS</span>
+          </div>
+          <p class="report-eyebrow">SCHOOLRAPPORT</p>
+          <h2 id="reportTitle">Rapport</h2>
+          <p class="report-date" id="reportDate"></p>
+          <div class="report-student-details">
+            <div>
+              <span>Schooljaar</span>
+              <strong id="reportSchoolYear"></strong>
+            </div>
+            <div>
+              <span>Niveau en leerjaar</span>
+              <strong id="reportLevel"></strong>
+            </div>
+          </div>
+        </header>
+        <section class="report-highlight" aria-label="Gemiddelde">
+          <span>Gewogen gemiddelde</span>
+          <strong id="reportOverallAverage"></strong>
+          <span id="reportGradeCount"></span>
+        </section>
+        <section class="report-results">
+          <div class="report-section-heading">
+            <div>
+              <p class="report-eyebrow">RESULTATEN</p>
+              <h3>Overzicht per vak</h3>
+            </div>
+            <span id="reportSubjectCount" class="report-subject-total"></span>
+          </div>
+          <div class="report-table-scroll">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th scope="col">Vak</th>
+                  <th scope="col">Gemiddelde</th>
+                  <th scope="col">Doel</th>
+                  <th scope="col">Cijfers</th>
+                </tr>
+              </thead>
+              <tbody id="reportSubjects"></tbody>
+            </table>
+          </div>
+        </section>
+        <footer class="report-footer">
+          <span>Dit rapport is een momentopname van je cijfers.</span>
+          <span>Mijn cijfers</span>
+        </footer>
+        <div class="report-actions">
+          <button id="saveReportPdfButton" class="report-print-button" type="button">Opslaan als PDF</button>
+          <button id="closeReportButton" class="secondary-action-button" type="button">Sluiten</button>
+        </div>
+        <p class="report-save-help">Je browser opent het opslaanvenster. Kies daar ‘Opslaan als PDF’.</p>
+      </article>
+    </dialog>
+
+    <template id="subjectCardTemplate">
+      <article class="subject-card">
+        <header class="subject-card-header">
+          <button class="subject-toggle-button" type="button">
+            <span class="subject-toggle-icon" aria-hidden="true"></span>
+            <span class="subject-card-title">
+              <span class="subject-meta">Vak</span>
+              <span class="subject-name"></span>
+              <span class="subject-average"></span>
+              <span class="subject-count"></span>
+            </span>
+          </button>
+          <button class="subject-delete-button" type="button">Wis vak</button>
+        </header>
+        <div class="subject-card-content">
+          <div class="subject-target-row">
+            <label class="subject-target-label">Doelgemiddelde</label>
+            <input class="subject-target-input" type="text" inputmode="decimal" placeholder="Bijv. 7,0">
+          </div>
+          <ul class="subject-grade-list"></ul>
+        </div>
+      </article>
+    </template>
+
+    <template id="gradeItemTemplate">
+      <li class="subject-grade-item">
+        <div class="subject-grade-main">
+          <p class="subject-grade-score"></p>
+          <p class="subject-grade-note"></p>
+        </div>
+        <p class="subject-grade-weight"></p>
+      </li>
+    </template>
+  </body>
+</html>
