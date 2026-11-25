@@ -61,13 +61,12 @@
               </button>
               <div id="schoolYearOptions" class="school-year-options" role="listbox" aria-label="Schooljaren" hidden></div>
             </div>
-            <div class="auth-card">
+            <div id="authCard" class="auth-card">
               <div class="auth-header">
                 <div>
                   <h2 id="signedInTitle">Account</h2>
                   <p data-auth-status>Je cijfers zijn gesynchroniseerd met je account.</p>
                 </div>
-                <button id="logoutButton" class="secondary-action-button" type="button" hidden>Uitloggen</button>
               </div>
             </div>
           </div>
@@ -213,6 +212,13 @@
           <section id="panel-settings" class="tab-panel" aria-labelledby="tab-settings" hidden>
             <section class="settings-section" aria-labelledby="settingsTitle">
               <h2 id="settingsTitle">Instellingen</h2>
+              <section id="accountSettingsCard" class="settings-card" aria-labelledby="accountSettingsTitle" hidden>
+                <div class="settings-card-header">
+                  <h3 id="accountSettingsTitle">Account</h3>
+                  <p>Je cijfers zijn gesynchroniseerd met je account.</p>
+                </div>
+                <button id="logoutButton" class="secondary-action-button" type="button">Uitloggen</button>
+              </section>
               <section class="settings-card school-year-settings" aria-labelledby="schoolYearSettingsTitle">
                 <div class="settings-card-header">
                   <h3 id="schoolYearSettingsTitle">Schooljaar toevoegen</h3>
