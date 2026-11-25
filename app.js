@@ -69,7 +69,6 @@ const authPasswordInput = document.getElementById("authPasswordInput");
 const authFeedback = document.getElementById("authFeedback");
 const loginButton = document.getElementById("loginButton");
 const registerButton = document.getElementById("registerButton");
-const authCard = document.getElementById("authCard");
 const accountSettingsCard = document.getElementById("accountSettingsCard");
 const logoutButton = document.getElementById("logoutButton");
 const schoolYearSwitcher = document.getElementById("schoolYearSwitcher");
@@ -601,7 +600,6 @@ function updateAuthUi() {
     console.log("updateAuthUi: Gebruiker ingelogd");
     
     updateAuthStatusMessages("Ingelogd.");
-    authCard.hidden = true;
     accountSettingsCard.hidden = false;
     logoutButton.hidden = false;
     authForm.hidden = true;
@@ -632,7 +630,6 @@ function updateAuthUi() {
   }
   
   updateAuthStatusMessages("Niet ingelogd. Log in om je gegevens online op te slaan.");
-  authCard.hidden = false;
   accountSettingsCard.hidden = true;
   logoutButton.hidden = true;
   authForm.hidden = false;
