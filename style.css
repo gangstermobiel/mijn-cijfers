@@ -501,6 +501,28 @@ body {
   display: none;
 }
 
+.sync-error-message {
+  position: fixed;
+  top: 3.2rem;
+  left: 50%;
+  z-index: 9999;
+  width: min(42rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.8rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid #f3b4ae;
+  border-radius: 12px;
+  background: #fff3f1;
+  color: #84251d;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+}
+
+.sync-error-message[hidden] {
+  display: none;
+}
+
 .sync-spinner {
   width: 1rem;
   height: 1rem;
@@ -1345,6 +1367,41 @@ body[data-theme="dark"] #loginButton {
   width: auto;
   min-width: 8rem;
   padding-inline: 1rem;
+}
+
+#gradeImageInput {
+  min-height: auto;
+  padding: 0.75rem;
+}
+
+.grade-image-preview {
+  display: grid;
+  justify-items: start;
+  gap: 0.65rem;
+}
+
+.grade-image-preview img {
+  width: min(100%, 24rem);
+  max-height: 18rem;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.subject-grade-image-link {
+  display: inline-block;
+  margin-top: 0.35rem;
+}
+
+.subject-grade-image-link img {
+  display: block;
+  width: min(100%, 15rem);
+  max-height: 12rem;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
 }
 
 #addGradeButton:active,

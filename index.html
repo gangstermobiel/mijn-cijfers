@@ -6,15 +6,16 @@
     <meta name="theme-color" content="#f3f4f6">
     <meta name="description" content="Houd je schoolcijfers en gemiddelden eenvoudig bij.">
     <title>Mijn cijfers</title>
-    <link rel="stylesheet" href="./style.css?v=2">
+    <link rel="stylesheet" href="./style.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script type="module" src="./app.js?v=2"></script>
+    <script type="module" src="./app.js?v=4"></script>
   </head>
   <body>
     <div id="syncIndicator" class="sync-indicator" role="status" hidden>
       <span class="sync-spinner" aria-hidden="true"></span>
       <span class="sync-label">Gegevens synchroniseren…</span>
     </div>
+    <p id="syncErrorMessage" class="sync-error-message" role="alert" hidden></p>
 
     <div id="loginModal" class="login-Modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle" aria-hidden="true" hidden>
       <section class="login-Modal-content">
@@ -155,6 +156,15 @@
                 <div class="form-group">
                   <label for="gradeNoteInput">Omschrijving <span>(optioneel)</span></label>
                   <input id="gradeNoteInput" name="note" type="text" maxlength="120" placeholder="Bijvoorbeeld: Hoofdstuk 3">
+                </div>
+                <div class="form-group">
+                  <label for="gradeImageInput">Foto bij dit cijfer <span>(optioneel)</span></label>
+                  <input id="gradeImageInput" name="image" type="file" accept="image/*" capture="environment">
+                  <p class="settings-example">Maak een foto of kies een afbeelding. Maximaal 10 MB; de foto wordt verkleind voor opslag.</p>
+                  <div id="gradeImagePreview" class="grade-image-preview" hidden>
+                    <img id="gradeImagePreviewImage" alt="Voorbeeld van de geselecteerde foto">
+                    <button id="removeGradeImageButton" class="secondary-action-button" type="button">Foto verwijderen</button>
+                  </div>
                 </div>
                 <button id="addGradeButton" type="submit">Cijfer opslaan</button>
               </form>

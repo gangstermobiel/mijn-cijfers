@@ -13,11 +13,19 @@ import {
   setDoc,
   enableIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import {
+  deleteObject,
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadBytes
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 const STORAGE_KEY = "cijferCalculatorSubjects";
 const SETTINGS_KEY = "cijferCalculatorSettings";
 const SCHOOL_YEARS_KEY = "cijferCalculatorSchoolYears";
 const ACTIVE_SCHOOL_YEAR_KEY = "cijferCalculatorActiveSchoolYear";
+const LOCAL_STATE_UPDATED_AT_KEY = "cijferCalculatorLocalStateUpdatedAt";
 const THEME_KEY = "theme";
 const OFFLINE_MODE_KEY = "isOfflineMode";
 const FIREBASE_APP_STATE_DOCUMENT = "data";
@@ -43,6 +51,7 @@ console.log("Firebase config geladen voor project:", firebaseConfig.projectId);
 const firebaseApp = initializeFirebaseApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
+const storage = getStorage(firebaseApp);
 
 // Enable offline persistence
 if (typeof window !== "undefined") {
@@ -88,6 +97,10 @@ const subjectInput = document.getElementById("subjectInput");
 const gradeInput = document.getElementById("gradeInput");
 const gradeWeightInput = document.getElementById("gradeWeightInput");
 const gradeNoteInput = document.getElementById("gradeNoteInput");
+const gradeImageInput = document.getElementById("gradeImageInput");
+const gradeImagePreview = document.getElementById("gradeImagePreview");
+const gradeImagePreviewImage = document.getElementById("gradeImagePreviewImage");
+const removeGradeImageButton = document.getElementById("removeGradeImageButton");
 const decimalSelect = document.getElementById("decimalSelect");
 const decimalExample = document.getElementById("decimalExample");
 const passingGradeInput = document.getElementById("passingGradeInput");
@@ -122,6 +135,7 @@ const gradeItemTemplate = document.getElementById("gradeItemTemplate");
 const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
 const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
 const syncIndicator = document.getElementById("syncIndicator");
+const syncErrorMessage = document.getElementById("syncErrorMessage");
 
 const weightFormatter = new Intl.NumberFormat("nl-NL", {
   maximumFractionDigits: 0
@@ -140,6 +154,22 @@ function hideSyncIndicator() {
   }
 }
 
+function showCloudSyncError(error, action) {
+  const message = getCloudSyncErrorMessage(error, action);
+  if (syncErrorMessage) {
+    syncErrorMessage.textContent = message;
+    syncErrorMessage.hidden = false;
+  }
+  showToast(message, "error");
+}
+
+function clearCloudSyncError() {
+  if (syncErrorMessage) {
+    syncErrorMessage.textContent = "";
+    syncErrorMessage.hidden = true;
+  }
+}
+
 let schoolYears = loadSchoolYears(loadSubjects());
 let activeSchoolYearId = loadActiveSchoolYearId(schoolYears);
 let subjects = schoolYears[activeSchoolYearId].subjects;
@@ -152,6 +182,8 @@ let isApplyingRemoteState = false;
 let isAuthBusy = false;
 let isAuthInitialized = false;
 let isOfflineMode = false;
+let remoteSyncQueue = Promise.resolve();
+let selectedGradeImagePreviewUrl = null;
 
 window.addEventListener("error", (event) => {
   setAuthFeedback(`Opstartfout: ${event.message}`, "error");
@@ -209,6 +241,21 @@ function getSubjectKey(subjectName) {
   return subjectName.toLocaleLowerCase("nl-NL");
 }
 
+function sanitizeGradeImageUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "firebasestorage.googleapis.com"
+      ? url.href
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 function sanitizeGrade(rawGrade) {
   const parsedGrade = parseGradeValue(rawGrade.grade);
   const parsedWeight = parseGradeValue(rawGrade.weight);
@@ -222,7 +269,11 @@ function sanitizeGrade(rawGrade) {
     id: rawGrade.id || createId(),
     grade: parsedGrade,
     weight: Number.isNaN(parsedWeight) || parsedWeight < 1 ? 1 : Math.round(parsedWeight),
-    note
+    note,
+    imagePath: typeof rawGrade.imagePath === "string" && rawGrade.imagePath.startsWith("users/")
+      ? rawGrade.imagePath
+      : "",
+    imageUrl: sanitizeGradeImageUrl(rawGrade.imageUrl)
   };
 }
 
@@ -442,12 +493,18 @@ function saveSubjects() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ subjects }));
   localStorage.setItem(SCHOOL_YEARS_KEY, JSON.stringify(schoolYears));
   localStorage.setItem(ACTIVE_SCHOOL_YEAR_KEY, activeSchoolYearId);
+  if (isAuthInitialized) {
+    localStorage.setItem(LOCAL_STATE_UPDATED_AT_KEY, String(Date.now()));
+  }
   void syncRemoteAppState();
 }
 
 function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   localStorage.setItem(THEME_KEY, settings.theme);
+  if (isAuthInitialized) {
+    localStorage.setItem(LOCAL_STATE_UPDATED_AT_KEY, String(Date.now()));
+  }
   void syncRemoteAppState();
 }
 
@@ -523,29 +580,57 @@ function getUserAppStateRef(user = currentUser) {
 
 async function syncRemoteAppState() {
   if (!currentUser || isApplyingRemoteState) {
-    return;
+    return false;
   }
 
-  const userDocRef = getUserAppStateRef();
-
+  const user = currentUser;
+  const userDocRef = getUserAppStateRef(user);
   if (!userDocRef) {
-    return;
+    return false;
   }
 
-  try {
-    showSyncIndicator();
-    
-    await setDoc(userDocRef, {
+  const updatedAt = Date.now();
+  const stateSnapshot = JSON.parse(JSON.stringify({
       subjects,
       settings,
       schoolYears,
-      activeSchoolYearId
-    }, { merge: true });
+      activeSchoolYearId,
+      updatedAt
+  }));
+  const write = remoteSyncQueue.catch(() => {}).then(async () => {
+    if (currentUser?.uid !== user.uid) {
+      return false;
+    }
+
+    showSyncIndicator();
+    await setDoc(userDocRef, stateSnapshot, { merge: true });
+    localStorage.setItem(LOCAL_STATE_UPDATED_AT_KEY, String(updatedAt));
+    clearCloudSyncError();
+    return true;
+  });
+  remoteSyncQueue = write;
+
+  try {
+    return await write;
   } catch (error) {
     console.error("Kon gegevens niet online opslaan.", error);
+    showCloudSyncError(error, "opslaan");
+    return false;
   } finally {
     hideSyncIndicator();
   }
+}
+
+function getCloudSyncErrorMessage(error, action) {
+  if (error?.code === "permission-denied") {
+    return `Cloudsync geweigerd bij ${action}. Controleer de Firestore-regels in Firebase.`;
+  }
+
+  if (error?.code === "unavailable" || !navigator.onLine) {
+    return `Cloudsync niet beschikbaar bij ${action}. Controleer je internetverbinding; je gegevens blijven lokaal bewaard.`;
+  }
+
+  return `Cloudsync mislukt bij ${action}${error?.code ? ` (${error.code})` : ""}. Je gegevens blijven lokaal bewaard.`;
 }
 
 function applyAppState(remoteData) {
@@ -559,7 +644,17 @@ function applyAppState(remoteData) {
   updateThemeSelector(settings.theme);
   saveSettings();
   saveSubjects();
+  localStorage.setItem(
+    LOCAL_STATE_UPDATED_AT_KEY,
+    String(Number.isFinite(remoteData.updatedAt) ? remoteData.updatedAt : Date.now())
+  );
   renderApp();
+}
+
+function hasGradesInSchoolYears(years) {
+  return Object.values(years).some((year) =>
+    Object.values(year.subjects).some((subject) => subject.grades.length > 0)
+  );
 }
 
 async function loadRemoteAppState(user) {
@@ -575,20 +670,37 @@ async function loadRemoteAppState(user) {
     const snapshot = await getDoc(userDocRef);
 
     if (!snapshot.exists()) {
-      await syncRemoteAppState();
-      return;
+      return await syncRemoteAppState();
     }
 
     const remoteData = snapshot.data();
+    const remoteSchoolYears = sanitizeSchoolYears(remoteData.schoolYears, remoteData.subjects);
+    const localUpdatedAt = Number(localStorage.getItem(LOCAL_STATE_UPDATED_AT_KEY)) || 0;
+    const remoteUpdatedAt = Number.isFinite(remoteData.updatedAt) ? remoteData.updatedAt : 0;
+    const localHasGrades = hasGradesInSchoolYears(schoolYears);
+    const remoteHasGrades = hasGradesInSchoolYears(remoteSchoolYears);
+
+    if (
+      localHasGrades &&
+      !remoteHasGrades &&
+      (!remoteUpdatedAt || !localUpdatedAt || localUpdatedAt > remoteUpdatedAt)
+    ) {
+      return await syncRemoteAppState();
+    }
 
     isApplyingRemoteState = true;
     applyAppState(remoteData);
+    clearCloudSyncError();
   } catch (error) {
     console.error("Kon online gegevens niet laden.", error);
+    showCloudSyncError(error, "laden");
+    return false;
   } finally {
     isApplyingRemoteState = false;
     hideSyncIndicator();
   }
+
+  return true;
 }
 
 function updateAuthUi() {
@@ -1185,6 +1297,20 @@ function renderSubjectsList() {
       actionWrapper.style.gap = "0.45rem";
       actionWrapper.style.justifyItems = "end";
       actionWrapper.style.flexShrink = "0";
+      if (gradeEntry.imageUrl) {
+        const imageLink = document.createElement("a");
+        const image = document.createElement("img");
+        imageLink.href = gradeEntry.imageUrl;
+        imageLink.target = "_blank";
+        imageLink.rel = "noopener noreferrer";
+        imageLink.className = "subject-grade-image-link";
+        image.title = "Foto bij dit cijfer openen";
+        image.alt = `Foto bij cijfer ${formatGrade(gradeEntry.grade)} voor ${subject.name}`;
+        image.loading = "lazy";
+        image.src = gradeEntry.imageUrl;
+        imageLink.appendChild(image);
+        noteElement.insertAdjacentElement("afterend", imageLink);
+      }
       actionWrapper.appendChild(weightElement);
       actionWrapper.appendChild(createGradeDeleteButton(subject.key, gradeEntry.id, "Wis"));
 
@@ -1479,7 +1605,117 @@ function handleSchoolYearSubmit(event) {
   renderApp();
 }
 
-function addGrade(event) {
+async function compressGradeImage(file) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Kies een afbeeldingsbestand.");
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error("De foto is groter dan 10 MB. Kies een kleinere foto.");
+  }
+
+  const imageBitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(imageBitmap.width, imageBitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(imageBitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(imageBitmap.height * scale));
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    imageBitmap.close();
+    throw new Error("De foto kon niet worden verwerkt.");
+  }
+
+  context.drawImage(imageBitmap, 0, 0, canvas.width, canvas.height);
+  imageBitmap.close();
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+
+  if (!blob) {
+    throw new Error("De foto kon niet worden verwerkt.");
+  }
+
+  if (blob.size > 5 * 1024 * 1024) {
+    throw new Error("De verkleinde foto is nog groter dan 5 MB. Kies een kleinere foto.");
+  }
+
+  return blob;
+}
+
+async function uploadGradeImage(file, gradeId) {
+  if (!currentUser) {
+    throw new Error("Log in om een foto bij je cijfer op te slaan.");
+  }
+
+  const imageBlob = await compressGradeImage(file);
+  const imagePath = `users/${currentUser.uid}/grades/${gradeId}.jpg`;
+  const imageRef = ref(storage, imagePath);
+  await uploadBytes(imageRef, imageBlob, { contentType: "image/jpeg" });
+
+  return {
+    imagePath,
+    imageUrl: await getDownloadURL(imageRef)
+  };
+}
+
+function clearGradeImageSelection() {
+  if (selectedGradeImagePreviewUrl) {
+    URL.revokeObjectURL(selectedGradeImagePreviewUrl);
+    selectedGradeImagePreviewUrl = null;
+  }
+
+  gradeImageInput.value = "";
+  gradeImagePreviewImage.removeAttribute("src");
+  gradeImagePreview.hidden = true;
+}
+
+function handleGradeImageSelection() {
+  const file = gradeImageInput.files?.[0];
+
+  if (!file) {
+    clearGradeImageSelection();
+    return;
+  }
+
+  if (!file.type.startsWith("image/")) {
+    clearGradeImageSelection();
+    showToast("Kies een afbeeldingsbestand.", "error");
+    return;
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    clearGradeImageSelection();
+    showToast("De foto is groter dan 10 MB. Kies een kleinere foto.", "error");
+    return;
+  }
+
+  if (selectedGradeImagePreviewUrl) {
+    URL.revokeObjectURL(selectedGradeImagePreviewUrl);
+  }
+
+  selectedGradeImagePreviewUrl = URL.createObjectURL(file);
+  gradeImagePreviewImage.src = selectedGradeImagePreviewUrl;
+  gradeImagePreview.hidden = false;
+}
+
+async function deleteGradeImage(imagePath) {
+  const expectedPrefix = currentUser ? `users/${currentUser.uid}/grades/` : "";
+
+  if (!imagePath || !expectedPrefix || !imagePath.startsWith(expectedPrefix)) {
+    return;
+  }
+
+  try {
+    await deleteObject(ref(storage, imagePath));
+  } catch (error) {
+    if (error.code !== "storage/object-not-found") {
+      console.error("Kon de foto niet verwijderen.", error);
+      showToast("Het cijfer is gewist, maar de bijbehorende foto kon niet uit de cloud worden verwijderd.", "error");
+    }
+  }
+}
+
+async function addGrade(event) {
   event.preventDefault();
 
   const normalizedSubject = normalizeSubjectName(subjectInput.value);
@@ -1505,32 +1741,47 @@ function addGrade(event) {
     return;
   }
 
-  const subjectKey = getSubjectKey(normalizedSubject);
+  const addButton = gradeForm.querySelector('button[type="submit"]');
+  addButton.disabled = true;
 
-  if (!subjects[subjectKey]) {
-    subjects[subjectKey] = {
-      name: normalizedSubject,
-      grades: [],
-      targetAverage: null
-    };
+  try {
+    const gradeId = createId();
+    const imageFile = gradeImageInput.files?.[0];
+    const imageData = imageFile ? await uploadGradeImage(imageFile, gradeId) : {};
+    const subjectKey = getSubjectKey(normalizedSubject);
+
+    if (!subjects[subjectKey]) {
+      subjects[subjectKey] = {
+        name: normalizedSubject,
+        grades: [],
+        targetAverage: null
+      };
+    }
+
+    subjects[subjectKey].name = normalizedSubject;
+    subjects[subjectKey].grades.push({
+      id: gradeId,
+      grade: parsedGrade,
+      weight: Math.round(parsedWeight),
+      note,
+      ...imageData
+    });
+
+    saveSubjects();
+    renderApp();
+    showToast(`Cijfer ${parsedGrade} voor ${normalizedSubject} opgeslagen! ✓`, "success");
+
+    gradeForm.reset();
+    clearGradeImageSelection();
+    subjectInput.value = normalizedSubject;
+    gradeWeightInput.value = "1";
+    gradeInput.focus();
+  } catch (error) {
+    console.error("Kon cijfer niet opslaan.", error);
+    showToast(error.message || getCloudSyncErrorMessage(error, "foto uploaden"), "error");
+  } finally {
+    addButton.disabled = false;
   }
-
-  subjects[subjectKey].name = normalizedSubject;
-  subjects[subjectKey].grades.push({
-    id: createId(),
-    grade: parsedGrade,
-    weight: Math.round(parsedWeight),
-    note
-  });
-
-  saveSubjects();
-  renderApp();
-  showToast(`Cijfer ${parsedGrade} voor ${normalizedSubject} opgeslagen! ✓`, "success");
-
-  gradeForm.reset();
-  subjectInput.value = normalizedSubject;
-  gradeWeightInput.value = "1";
-  gradeInput.focus();
 }
 
 function deleteGrade(subjectKey, gradeId) {
@@ -1540,6 +1791,7 @@ function deleteGrade(subjectKey, gradeId) {
     return;
   }
 
+  const removedGrade = subject.grades.find((gradeEntry) => gradeEntry.id === gradeId);
   subject.grades = subject.grades.filter((gradeEntry) => gradeEntry.id !== gradeId);
 
   if (subject.grades.length === 0) {
@@ -1549,17 +1801,24 @@ function deleteGrade(subjectKey, gradeId) {
 
   saveSubjects();
   renderApp();
+  if (removedGrade?.imagePath) {
+    void deleteGradeImage(removedGrade.imagePath);
+  }
 }
 
 function deleteSubject(subjectKey) {
-  if (!subjects[subjectKey]) {
+  const subject = subjects[subjectKey];
+
+  if (!subject) {
     return;
   }
 
+  const imagePaths = subject.grades.map((gradeEntry) => gradeEntry.imagePath).filter(Boolean);
   delete subjects[subjectKey];
   delete collapsedSubjects[subjectKey];
   saveSubjects();
   renderApp();
+  imagePaths.forEach((imagePath) => void deleteGradeImage(imagePath));
 }
 
 function handleSubjectTargetChange(subjectKey, event) {
@@ -1603,10 +1862,14 @@ function clearGrades() {
     return;
   }
 
+  const imagePaths = Object.values(subjects)
+    .flatMap((subject) => subject.grades.map((gradeEntry) => gradeEntry.imagePath))
+    .filter(Boolean);
   subjects = {};
   lastGoalState = null;
   saveSubjects();
   renderApp();
+  imagePaths.forEach((imagePath) => void deleteGradeImage(imagePath));
 }
 
 function generateReport() {
@@ -2152,8 +2415,14 @@ function initializeFirebaseSync() {
       console.log("✓ Gebruiker ingelogd");
       isOfflineMode = false;
       localStorage.removeItem(OFFLINE_MODE_KEY);
-      updateAuthUi(); // Update UI: toon app, verberg modal
-      await loadRemoteAppState(currentUser); // Laad gebruiker gegevens
+      updateAuthUi();
+      const app = document.querySelector(".app");
+      if (app) {
+        app.hidden = true;
+        app.setAttribute("aria-hidden", "true");
+      }
+      await loadRemoteAppState(currentUser);
+      updateAuthUi();
     } else {
       console.log("✕ Geen gebruiker ingelogd - controleer offline fallback");
       // Check if we have local data (offline mode)
@@ -2180,8 +2449,10 @@ function initializeNetworkSync() {
       isOfflineMode = false;
       localStorage.removeItem(OFFLINE_MODE_KEY);
       showToast("Terug online! Synchroniseren met server...", "success");
-      await syncRemoteAppState();
-      showToast("Data gesynchroniseerd! ✓", "success");
+      const synced = await syncRemoteAppState();
+      if (synced) {
+        showToast("Data gesynchroniseerd! ✓", "success");
+      }
     }
   });
 
@@ -2288,6 +2559,8 @@ function initializeApp() {
   document.addEventListener("click", closeSchoolYearOptions);
   schoolYearForm.addEventListener("submit", handleSchoolYearSubmit);
   gradeForm.addEventListener("submit", addGrade);
+  gradeImageInput.addEventListener("change", handleGradeImageSelection);
+  removeGradeImageButton.addEventListener("click", clearGradeImageSelection);
   goalForm.addEventListener("submit", calculateGoal);
   settingsForm.addEventListener("submit", (event) => event.preventDefault());
   clearGradesButton.addEventListener("click", clearGrades);
